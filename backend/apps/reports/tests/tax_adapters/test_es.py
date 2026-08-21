@@ -1,0 +1,643 @@
+"""Tests for the Spanish (ES) tax-declaration adapter — Modo Renta backend."""
+
+import datetime
+from decimal import Decimal
+
+import pytest
+from django.contrib.auth import get_user_model
+
+from apps.assets.models import Account, Asset, Settings
+from apps.reports.tax_adapters import get_adapter
+from apps.transactions.models import Dividend, Interest, Transaction
+
+
+def tax_declaration(user, year):
+    """Test shim for backwards compatibility with the previous import path."""
+    return get_adapter("ES").declare(user, year)
+
+
+User = get_user_model()
+
+YEAR = 2025
+
+
+@pytest.fixture
+def user(db):
+    return User.objects.create_user(username="rentauser", password="testpass123")
+
+
+@pytest.fixture
+def account(user):
+    return Account.objects.create(
+        owner=user,
+        name="Main",
+        type=Account.AccountType.OPERATIVA,
+        currency="EUR",
+        balance=Decimal("0"),
+    )
+
+
+@pytest.fixture
+def account_tr(user):
+    return Account.objects.create(
+        owner=user,
+        name="Trade Republic",
+        type=Account.AccountType.OPERATIVA,
+        currency="EUR",
+        balance=Decimal("0"),
+    )
+
+
+@pytest.fixture
+def account_big(user):
+    return Account.objects.create(
+        owner=user,
+        name="Banco Big",
+        type=Account.AccountType.OPERATIVA,
+        currency="EUR",
+        balance=Decimal("0"),
+    )
+
+
+@pytest.fixture
+def asset_es(user):
+    return Asset.objects.create(
+        owner=user,
+        name="Iberdrola",
+        ticker="IBE",
+        type=Asset.AssetType.STOCK,
+        currency="EUR",
+        issuer_country="ES",
+        withholding_country="ES",
+        current_price=Decimal("12.00"),
+    )
+
+
+@pytest.fixture
+def asset_us(user):
+    return Asset.objects.create(
+        owner=user,
+        name="Apple",
+        ticker="AAPL",
+        type=Asset.AssetType.STOCK,
+        currency="USD",
+        issuer_country="US",
+        withholding_country="US",
+        current_price=Decimal("180.00"),
+    )
+
+
+@pytest.fixture
+def asset_cn(user):
+    return Asset.objects.create(
+        owner=user,
+        name="Tencent",
+        ticker="TCEHY",
+        type=Asset.AssetType.STOCK,
+        currency="USD",
+        issuer_country="CN",
+        withholding_country="CN",
+        current_price=Decimal("40.00"),
+    )
+
+
+@pytest.fixture
+def asset_no_country(user):
+    return Asset.objects.create(
+        owner=user,
+        name="Mystery Stock",
+        ticker="MYST",
+        type=Asset.AssetType.STOCK,
+        currency="EUR",
+        current_price=Decimal("5.00"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _div(user, asset, date, gross, tax, net, commission=Decimal("0")):
+    return Dividend.objects.create(
+        owner=user,
+        asset=asset,
+        date=date,
+        gross=gross,
+        tax=tax,
+        commission=commission,
+        net=net,
+    )
+
+
+def _interest(user, account, date_end, gross, net, tax=None, commission=Decimal("0")):
+    return Interest.objects.create(
+        owner=user,
+        account=account,
+        date_start=date_end - datetime.timedelta(days=30),
+        date_end=date_end,
+        gross=gross,
+        tax=tax,
+        commission=commission,
+        net=net,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+def test_dividends_separates_es_vs_foreign(user, asset_es, asset_us):
+    _div(user, asset_es, datetime.date(YEAR, 6, 1), Decimal("100.00"), Decimal("19.00"), Decimal("81.00"))
+    _div(user, asset_us, datetime.date(YEAR, 6, 1), Decimal("88.39"), Decimal("17.47"), Decimal("70.92"))
+
+    out = tax_declaration(user, YEAR)
+    div = out["dividends"]
+
+    assert div["gross_total"] == "188.39"
+    # Spanish withholding only includes ES rows
+    assert div["withholding_es"] == "19.00"
+    # Total withholding includes both ES and foreign
+    assert div["withholding_total"] == "36.47"
+    # net_informative = sum(net), already discounts ALL withholdings (ES + foreign)
+    assert div["net_informative"] == "151.92"
+
+
+def test_double_taxation_per_country_default_15_pct(user, asset_us, asset_cn):
+    # Plan example: US 88.39 → 13.26, CN 7.11 → 0.85
+    _div(user, asset_us, datetime.date(YEAR, 7, 1), Decimal("88.39"), Decimal("17.47"), Decimal("70.92"))
+    _div(user, asset_cn, datetime.date(YEAR, 8, 1), Decimal("7.11"), Decimal("0.85"), Decimal("6.26"))
+
+    out = tax_declaration(user, YEAR)
+    dt = out["double_taxation"]
+
+    assert dt["foreign_gross_total"] == "95.50"
+    by_country = {row["country"]: row for row in dt["by_country"]}
+
+    us = by_country["US"]
+    assert us["gross"] == "88.39"
+    assert us["withholding"] == "17.47"
+    assert us["limit"] == "13.26"  # 88.39 * 0.15
+    assert us["deductible"] == "13.26"  # min(17.47, 13.26)
+    assert us["is_default_rate"] is True
+
+    cn = by_country["CN"]
+    assert cn["gross"] == "7.11"
+    assert cn["withholding"] == "0.85"
+    assert cn["limit"] == "1.07"  # 7.11 * 0.15 = 1.0665 → 1.07
+    assert cn["deductible"] == "0.85"  # min(0.85, 1.07)
+
+    # Total deductible 13.26 + 0.85 = 14.11 (NOT 17.47 — we cap per country)
+    assert dt["deductible_total"] == "14.11"
+
+
+def test_double_taxation_uses_user_treaty_override(user, asset_us):
+    _div(user, asset_us, datetime.date(YEAR, 7, 1), Decimal("88.39"), Decimal("17.47"), Decimal("70.92"))
+
+    s = Settings.load(user)
+    s.tax_treaty_limits = {"US": "0.10"}
+    s.save()
+
+    out = tax_declaration(user, YEAR)
+    us = next(row for row in out["double_taxation"]["by_country"] if row["country"] == "US")
+
+    assert us["rate_applied"] == "0.10"
+    assert us["is_default_rate"] is False
+    # 88.39 * 0.10 = 8.839 → quantize 0.01 → 8.84
+    assert us["limit"] == "8.84"
+    assert us["deductible"] == "8.84"
+
+
+def test_double_taxation_info_appears_when_foreign_present(user, asset_us):
+    _div(user, asset_us, datetime.date(YEAR, 7, 1), Decimal("100.00"), Decimal("15.00"), Decimal("85.00"))
+
+    out = tax_declaration(user, YEAR)
+
+    info_kinds = [i["kind"] for i in out["infos"]]
+    assert "double_taxation_applied" in info_kinds
+
+
+def test_interests_uses_explicit_tax_when_not_null(user, account_big):
+    # Big with explicit withholding tax = 4.00
+    _interest(
+        user,
+        account_big,
+        datetime.date(YEAR, 12, 31),
+        gross=Decimal("20.00"),
+        tax=Decimal("4.00"),
+        net=Decimal("16.00"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    intr = out["interests"]
+
+    assert intr["gross"] == "20.00"
+    assert intr["withholding"] == "4.00"
+    assert intr["net"] == "16.00"
+
+
+def test_interests_zero_tax_explicit_is_respected(user, account_tr):
+    # Trade Republic pre-IBAN ES: confirmed no withholding (tax = 0, NOT null)
+    _interest(
+        user,
+        account_tr,
+        datetime.date(YEAR, 12, 31),
+        gross=Decimal("12.00"),
+        tax=Decimal("0"),
+        net=Decimal("12.00"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    assert out["interests"]["gross"] == "12.00"
+    assert out["interests"]["withholding"] == "0.00"
+
+
+def test_interests_null_tax_is_inferred(user, account_tr):
+    # Imported / legacy row: tax is NULL → infer from gross - net - commission
+    _interest(
+        user,
+        account_tr,
+        datetime.date(YEAR, 12, 31),
+        gross=Decimal("20.00"),
+        tax=None,
+        net=Decimal("16.00"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    # Inferred withholding = 20 - 16 - 0 = 4
+    assert out["interests"]["withholding"] == "4.00"
+
+
+def test_capital_gains_uses_realized_pnl_directly_no_double_discount(user, account, asset_es, settings=None):
+    # Buy 10 @ 10 with 1.00 commission → cost basis = 100 + 1 = 101
+    Transaction.objects.create(
+        owner=user,
+        asset=asset_es,
+        account=account,
+        date=datetime.date(YEAR - 1, 1, 10),
+        type=Transaction.TransactionType.BUY,
+        quantity=Decimal("10"),
+        price=Decimal("10.00"),
+        commission=Decimal("1.00"),
+        tax=Decimal("0"),
+    )
+    # Sell 10 @ 15 with 2.00 commission → proceeds = 150 - 2 = 148, pnl = 148 - 101 = 47
+    Transaction.objects.create(
+        owner=user,
+        asset=asset_es,
+        account=account,
+        date=datetime.date(YEAR, 6, 1),
+        type=Transaction.TransactionType.SELL,
+        quantity=Decimal("10"),
+        price=Decimal("15.00"),
+        commission=Decimal("2.00"),
+        tax=Decimal("0"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    cg = out["capital_gains"]
+
+    assert cg["transmission_total"] == "148.00"
+    assert cg["acquisition_total"] == "101.00"
+    assert cg["net_result"] == "47.00"
+    assert cg["total_gains"] == "47.00"
+    assert cg["total_losses"] == "0.00"
+    assert len(cg["rows"]) == 1
+
+
+def test_warning_missing_tax_country_for_foreign_div(user, asset_no_country):
+    _div(user, asset_no_country, datetime.date(YEAR, 6, 1), Decimal("50.00"), Decimal("5.00"), Decimal("45.00"))
+
+    out = tax_declaration(user, YEAR)
+    kinds = [w["kind"] for w in out["warnings"]]
+    assert "missing_tax_country" in kinds
+
+
+def test_warning_net_mismatch_in_dividend(user, asset_es):
+    # gross 100, tax 0, commission 0, net 90 → 100 - 0 - 0 = 100, but net = 90 → mismatch
+    _div(user, asset_es, datetime.date(YEAR, 6, 1), Decimal("100.00"), Decimal("0"), Decimal("90.00"))
+
+    out = tax_declaration(user, YEAR)
+    kinds = [w["kind"] for w in out["warnings"]]
+    assert "net_mismatch" in kinds
+
+
+def test_year_filter_only_returns_year_data(user, asset_es):
+    _div(user, asset_es, datetime.date(YEAR - 1, 6, 1), Decimal("100.00"), Decimal("19.00"), Decimal("81.00"))
+    _div(user, asset_es, datetime.date(YEAR, 6, 1), Decimal("50.00"), Decimal("9.50"), Decimal("40.50"))
+
+    out = tax_declaration(user, YEAR)
+    assert out["dividends"]["gross_total"] == "50.00"
+
+
+def test_summary_replicates_block_totals(user, asset_es, asset_us):
+    _div(user, asset_es, datetime.date(YEAR, 6, 1), Decimal("100.00"), Decimal("19.00"), Decimal("81.00"))
+    _div(user, asset_us, datetime.date(YEAR, 6, 1), Decimal("88.39"), Decimal("17.47"), Decimal("70.92"))
+
+    out = tax_declaration(user, YEAR)
+    s = out["summary"]
+
+    assert s["dividends_gross"] == out["dividends"]["gross_total"]
+    assert s["dividends_withholding_es"] == out["dividends"]["withholding_es"]
+    assert s["double_taxation_foreign_gross"] == out["double_taxation"]["foreign_gross_total"]
+    assert s["double_taxation_deductible"] == out["double_taxation"]["deductible_total"]
+
+
+# ---------------------------------------------------------------------------
+# Rendimientos del trabajo (employment_income)
+# ---------------------------------------------------------------------------
+
+
+def _payroll(user, employer, period_end, gross, ss, irpf, net, period_start=None, base_irpf=None):
+    from apps.payroll.models import Payroll
+
+    if period_start is None:
+        period_start = period_end.replace(day=1)
+    return Payroll.objects.create(
+        owner=user,
+        employer=employer,
+        period_start=period_start,
+        period_end=period_end,
+        gross=gross,
+        ss_employee=ss,
+        irpf_withholding=irpf,
+        net=net,
+        base_irpf=base_irpf,
+    )
+
+
+@pytest.fixture
+def employer_acme(user):
+    from apps.payroll.models import Employer
+
+    return Employer.objects.create(owner=user, name="Acme S.L.", cif="B12345678")
+
+
+@pytest.fixture
+def employer_globex(user):
+    from apps.payroll.models import Employer
+
+    return Employer.objects.create(owner=user, name="Globex Corp")
+
+
+def test_employment_block_aggregates_year(user, employer_acme):
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 2, 28),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    emp = out["employment_income"]
+
+    assert emp["casilla"].startswith("Rendimientos del trabajo")
+    # No base_irpf set on either payroll → falls back to gross.
+    assert emp["gross_subject"] == "10000.00"
+    assert emp["ss_deductible"] == "600.00"
+    assert emp["withholding"] == "2800.00"
+    assert emp["net_informative"] == "6600.00"
+    assert len(emp["by_employer"]) == 1
+    assert emp["by_employer"][0]["name"] == "Acme S.L."
+    assert emp["by_employer"][0]["cif"] == "B12345678"
+
+
+def test_employment_block_groups_by_employer(user, employer_acme, employer_globex):
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+    _payroll(
+        user,
+        employer_globex,
+        datetime.date(YEAR, 6, 30),
+        gross=Decimal("3000"),
+        ss=Decimal("180"),
+        irpf=Decimal("600"),
+        net=Decimal("2220"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    emp = out["employment_income"]
+
+    by_name = {e["name"]: e for e in emp["by_employer"]}
+    assert by_name["Acme S.L."]["gross_subject"] == "5000.00"
+    assert by_name["Globex Corp"]["gross_subject"] == "3000.00"
+    assert by_name["Globex Corp"]["cif"] == ""  # employer_globex has no CIF
+    assert emp["gross_subject"] == "8000.00"
+
+
+def test_employment_year_filter(user, employer_acme):
+    # Previous year payroll must NOT leak into this year's report
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR - 1, 12, 31),
+        gross=Decimal("9999"),
+        ss=Decimal("0"),
+        irpf=Decimal("0"),
+        net=Decimal("9999"),
+    )
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    assert out["employment_income"]["gross_subject"] == "5000.00"
+
+
+def test_employment_block_empty_year(user):
+    """No payrolls → block exists with zero totals and empty breakdown."""
+    out = tax_declaration(user, YEAR)
+    emp = out["employment_income"]
+    assert emp["gross_subject"] == "0.00"
+    assert emp["ss_deductible"] == "0.00"
+    assert emp["withholding"] == "0.00"
+    assert emp["by_employer"] == []
+
+
+def test_employment_summary_replicates_totals(user, employer_acme):
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    s = out["summary"]
+    emp = out["employment_income"]
+
+    assert s["employment_gross_subject"] == emp["gross_subject"]
+    assert s["employment_ss_deductible"] == emp["ss_deductible"]
+    assert s["employment_withholding"] == emp["withholding"]
+
+
+def test_employment_net_mismatch_emits_warning(user, employer_acme):
+    """A payslip with gross-ss-irpf != net produces an info warning, never an error.
+
+    The message must surface the individual amounts and the delta so the
+    user can quickly identify which payslip is involved and why.
+    """
+    # gross 5000 - ss 300 - irpf 1400 = 3300, but net = 3200 (anticipo).
+    # The concept must show up between «» so it's easy to spot in a list.
+    from apps.payroll.models import Payroll
+
+    Payroll.objects.create(
+        owner=user,
+        employer=employer_acme,
+        period_start=datetime.date(YEAR, 1, 1),
+        period_end=datetime.date(YEAR, 1, 31),
+        concept="Enero 2025",
+        gross=Decimal("5000"),
+        ss_employee=Decimal("300"),
+        irpf_withholding=Decimal("1400"),
+        net=Decimal("3200"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    msg = next(w for w in out["warnings"] if w["kind"] == "payroll_net_mismatch")["message"]
+    assert "«Enero 2025»" in msg
+    assert "bruto 5000.00" in msg
+    assert "SS 300.00" in msg
+    assert "IRPF 1400.00" in msg
+    assert "neto 3200.00" in msg
+    assert "Δ 100.00" in msg
+    assert "anticipos" in msg or "embargos" in msg
+
+
+def test_employment_net_mismatch_without_concept(user, employer_acme):
+    """When concept is empty, the warning still works but skips the «...»."""
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 2, 28),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3200"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    msg = next(w for w in out["warnings"] if w["kind"] == "payroll_net_mismatch")["message"]
+    # No leading «...» since concept is empty.
+    assert msg.startswith("Nómina de 'Acme S.L.'")
+    assert "«" not in msg
+
+
+def test_employment_missing_months_warning(user, employer_acme):
+    """Gaps between the first and last payroll of the year emit a warning."""
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 4, 30),
+        gross=Decimal("5000"),
+        ss=Decimal("300"),
+        irpf=Decimal("1400"),
+        net=Decimal("3300"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    kinds = [w["kind"] for w in out["warnings"]]
+    assert "payroll_missing_months" in kinds
+
+
+def test_employment_uses_base_irpf_when_present(user, employer_acme):
+    """When the payslip has ``base_irpf`` (exempt items like cheque comida
+    already excluded), the Renta casilla "Retribuciones dinerarias" must
+    use that — not the bigger T. Devengado. Mirrors what AEAT expects."""
+    # Mes con cheque restaurante 100 € exento → base_irpf < gross.
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 1, 31),
+        gross=Decimal("4633.33"),
+        base_irpf=Decimal("4533.33"),
+        ss=Decimal("300.24"),
+        irpf=Decimal("1170.96"),
+        net=Decimal("3027.13"),
+    )
+    # Mes sin cheque → base_irpf == gross (idéntico al devengado).
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 2, 28),
+        gross=Decimal("5133.33"),
+        base_irpf=Decimal("5133.33"),
+        ss=Decimal("318.48"),
+        irpf=Decimal("1315.67"),
+        net=Decimal("3499.18"),
+    )
+    # Mes sin base_irpf → fallback a gross.
+    _payroll(
+        user,
+        employer_acme,
+        datetime.date(YEAR, 3, 31),
+        gross=Decimal("4633.33"),
+        base_irpf=None,
+        ss=Decimal("300.24"),
+        irpf=Decimal("1195.86"),
+        net=Decimal("3137.23"),
+    )
+
+    out = tax_declaration(user, YEAR)
+    emp = out["employment_income"]
+
+    # 4533.33 (base) + 5133.33 (base==gross) + 4633.33 (gross fallback) = 14299.99
+    assert emp["gross_subject"] == "14299.99"
+    assert emp["by_employer"][0]["gross_subject"] == "14299.99"
+    assert out["summary"]["employment_gross_subject"] == "14299.99"
+
+
+def test_employment_no_missing_months_when_complete(user, employer_acme):
+    for m in range(1, 13):
+        last_day = 28 if m == 2 else 30 if m in (4, 6, 9, 11) else 31
+        _payroll(
+            user,
+            employer_acme,
+            datetime.date(YEAR, m, last_day),
+            gross=Decimal("5000"),
+            ss=Decimal("300"),
+            irpf=Decimal("1400"),
+            net=Decimal("3300"),
+        )
+
+    out = tax_declaration(user, YEAR)
+    kinds = [w["kind"] for w in out["warnings"]]
+    assert "payroll_missing_months" not in kinds
