@@ -377,8 +377,8 @@ class HealthView(APIView):
     """GET /api/health/ — liveness probe."""
 
     permission_classes = [AllowAny]
-    authentication_classes = []
-    throttle_classes = []
+    authentication_classes: list[type] = []
+    throttle_classes: list[type] = []
 
     def get(self, request):
         from django.db import connection

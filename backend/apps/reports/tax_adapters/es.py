@@ -29,9 +29,9 @@ DEFAULT_TREATY_RATE = Decimal("0.15")
 def _is_es_dividend(asset) -> bool:
     """True when the dividend is treated as Spanish for IRPF purposes."""
     if asset.withholding_country:
-        return asset.withholding_country.upper() == "ES"
+        return str(asset.withholding_country).upper() == "ES"
     if asset.issuer_country:
-        return asset.issuer_country.upper() == "ES"
+        return str(asset.issuer_country).upper() == "ES"
     return False
 
 

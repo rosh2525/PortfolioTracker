@@ -8,7 +8,7 @@ class EmployerFilter(django_filters.FilterSet):
 
     class Meta:
         model = Employer
-        fields = []
+        fields: list[str] = []
 
 
 class PayrollFilter(django_filters.FilterSet):
@@ -18,4 +18,4 @@ class PayrollFilter(django_filters.FilterSet):
 
     class Meta:
         model = Payroll
-        fields = []
+        fields: list[str] = []

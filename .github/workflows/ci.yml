@@ -64,8 +64,7 @@ jobs:
         run: ruff format --check backend/
 
       - name: Mypy
-        run: mypy backend/apps/ --ignore-missing-imports
-        continue-on-error: true  # gradual adoption
+        run: mypy --config-file backend/pyproject.toml backend/apps/ --ignore-missing-imports
 
   backend-tests:
     name: Backend tests

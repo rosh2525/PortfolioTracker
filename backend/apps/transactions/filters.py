@@ -14,7 +14,7 @@ class TransactionFilter(django_filters.FilterSet):
 
     class Meta:
         model = Transaction
-        fields = []
+        fields: list[str] = []
 
     def filter_search(self, queryset, name, value):
         return queryset.filter(Q(asset__name__icontains=value) | Q(asset__ticker__icontains=value))
@@ -26,7 +26,7 @@ class DividendFilter(django_filters.FilterSet):
 
     class Meta:
         model = Dividend
-        fields = []
+        fields: list[str] = []
 
 
 class InterestFilter(django_filters.FilterSet):
@@ -35,4 +35,4 @@ class InterestFilter(django_filters.FilterSet):
 
     class Meta:
         model = Interest
-        fields = []
+        fields: list[str] = []

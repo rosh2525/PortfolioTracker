@@ -47,7 +47,12 @@ quote-style = "double"
 
 [tool.mypy]
 python_version = "3.12"
+plugins = ["mypy_django_plugin.main"]
+mypy_path = "backend"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
 exclude = ["migrations", "tests"]
+
+[tool.django-stubs]
+django_settings_module = "config.settings.development"

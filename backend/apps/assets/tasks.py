@@ -20,7 +20,7 @@ def update_prices_task(self, user_id: int) -> dict:
         return {"updated": 0, "errors": ["User not found"]}
 
     try:
-        result = update_prices(user)
+        result: dict[str, object] = dict(update_prices(user))
         result["user_id"] = user.pk
         # Invalidate cached portfolio/reports since prices changed
         from apps.core.cache import FINANCIAL_NAMESPACES, invalidate_user_cache
@@ -94,7 +94,10 @@ def purge_old_snapshots_task() -> None:
     from apps.assets.models import PortfolioSnapshot, Settings
 
     for settings in Settings.objects.select_related("user").exclude(data_retention_days__isnull=True):
-        cutoff = timezone.now() - timedelta(days=settings.data_retention_days)
+        retention_days = settings.data_retention_days
+        if retention_days is None:
+            continue
+        cutoff = timezone.now() - timedelta(days=retention_days)
         user = settings.user
 
         with transaction.atomic():
