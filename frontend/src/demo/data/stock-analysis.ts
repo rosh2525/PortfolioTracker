@@ -1,0 +1,72 @@
+import type { StockAnalysis } from "@/types";
+
+export const demoStockAnalysis: StockAnalysis = {
+  id: "demo-analysis",
+  asset: "1",
+  asset_name: "Reliance Industries",
+  ticker: "RELIANCE.NS",
+  task_id: "",
+  status: "COMPLETED",
+  rating: "BULLISH",
+  signal_score: 72,
+  data_coverage: 100,
+  summary:
+    "Diversified earnings and steady relative momentum support the signal, while valuation and cyclical energy exposure keep conviction measured.",
+  factors: {
+    fundamentals: {
+      score: 78,
+      available: true,
+      explanation: "Healthy margins and return metrics support business quality.",
+      evidence_ids: [],
+    },
+    valuation: {
+      score: 58,
+      available: true,
+      explanation: "The valuation is reasonable but not deeply discounted.",
+      evidence_ids: [],
+    },
+    earnings: {
+      score: 74,
+      available: true,
+      explanation: "Recent earnings delivery was resilient across major segments.",
+      evidence_ids: [],
+    },
+    momentum: {
+      score: 70,
+      available: true,
+      explanation: "Six-month returns are ahead of the NIFTY 50 benchmark.",
+      evidence_ids: [],
+    },
+    news: {
+      score: 76,
+      available: true,
+      explanation: "Recent public updates indicate continued investment and execution.",
+      evidence_ids: [],
+    },
+  },
+  metrics_snapshot: {
+    trailing_pe: 24.3,
+    return_on_equity: 0.091,
+    has_financial_snapshot: true,
+    momentum: { benchmark: "^NSEI", return_6m: 9.8, relative_6m: 3.1 },
+    earnings: {
+      latest_reported_at: "2026-07-18",
+      eps_estimate: 28.4,
+      eps_actual: 29.1,
+      next_earnings_date: "2026-10-16",
+    },
+  },
+  bull_case: ["Consumer and digital businesses continue compounding.", "Energy cash flows fund growth investments."],
+  bear_case: ["Large capital expenditure could pressure returns.", "Energy margins remain cyclical."],
+  catalysts: ["Stronger retail growth", "New-energy project milestones"],
+  risks: ["Regulatory changes", "Commodity-price volatility"],
+  citations: [],
+  data_timestamp: "2026-08-20T10:00:00+05:30",
+  expires_at: null,
+  gemini_model: "gemini-2.5-flash (demo)",
+  prompt_version: "v1",
+  error_code: "",
+  created_at: "2026-08-20T10:00:00+05:30",
+  updated_at: "2026-08-20T10:00:00+05:30",
+  demo: true,
+};

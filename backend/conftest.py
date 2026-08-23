@@ -13,5 +13,6 @@ def _disable_throttling(settings):
         "auth_register": "99999/minute",
         "auth_google": "99999/minute",
         "auth_password": "99999/minute",
+        "stock_analysis": "99999/minute",
     }
     settings.REST_FRAMEWORK = rf

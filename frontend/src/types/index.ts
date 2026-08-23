@@ -74,6 +74,57 @@ export interface AssetFormData {
   price_source?: PriceSource;
 }
 
+export type StockAnalysisStatus = "PENDING" | "RUNNING" | "COMPLETED" | "INSUFFICIENT_DATA" | "FAILED";
+export type StockRating = "VERY_BEARISH" | "BEARISH" | "NEUTRAL" | "BULLISH" | "VERY_BULLISH";
+
+export interface StockFactor {
+  score: number;
+  available: boolean;
+  explanation: string;
+  evidence_ids: string[];
+}
+
+export interface StockCitation {
+  id: string;
+  url: string;
+  title: string;
+  domain: string;
+  cited_text: string;
+  published_at: string | null;
+}
+
+export interface StockAnalysis {
+  id: string;
+  asset: string;
+  asset_name: string;
+  ticker: string;
+  task_id: string;
+  status: StockAnalysisStatus;
+  rating: StockRating | null;
+  signal_score: number | null;
+  data_coverage: number;
+  summary: string;
+  factors: Record<string, StockFactor>;
+  metrics_snapshot: Record<string, unknown>;
+  bull_case: string[];
+  bear_case: string[];
+  catalysts: string[];
+  risks: string[];
+  citations: StockCitation[];
+  data_timestamp: string | null;
+  expires_at: string | null;
+  gemini_model: string;
+  prompt_version: string;
+  error_code: string;
+  created_at: string;
+  updated_at: string;
+  demo?: boolean;
+}
+
+export type StockAnalysisPost =
+  | { cached: true; analysis: StockAnalysis }
+  | { cached: false; analysis_id: string; task_id: string; status: StockAnalysisStatus };
+
 // ── Accounts ─────────────────────────────────────────────────────
 export type AccountType =
   | "OPERATIVA"

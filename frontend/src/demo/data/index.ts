@@ -21,3 +21,4 @@ export { getDemoPriceHistory } from "./charts";
 export { demoProperties, demoAmortizations, demoSimulationResult } from "./properties";
 export { demoEmployers } from "./employers";
 export { demoPayrolls } from "./payrolls";
+export { demoStockAnalysis } from "./stock-analysis";
