@@ -8,6 +8,7 @@ from apps.insights.agent import (
     MAX_TOOL_TURNS,
     StockThesisAgent,
     ThesisOutput,
+    contains_personal_fields,
     public_asset_context,
     validate_http_url,
 )
@@ -27,6 +28,11 @@ def test_public_context_excludes_personal_portfolio_fields():
     context = public_asset_context(asset)
     assert context == {"name": "Reliance", "ticker": "RELIANCE.NS", "exchange": "NSE"}
     assert not ({"quantity", "cost_basis", "balance", "transactions"} & set(context))
+
+
+def test_personal_field_filter_checks_keys_not_public_article_words():
+    assert contains_personal_fields({"market_data": {"balance": 100}})
+    assert not contains_personal_fields({"news_summary": "The company rebalanced its product portfolio."})
 
 
 def test_structured_output_requires_all_factors():
