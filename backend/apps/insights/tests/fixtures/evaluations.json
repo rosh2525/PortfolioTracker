@@ -1,0 +1,5 @@
+[
+  {"name": "bullish", "factors": {"fundamentals": 82, "valuation": 68, "earnings": 80, "momentum": 76, "news": 74}, "expected": [60, 100]},
+  {"name": "neutral", "factors": {"fundamentals": 55, "valuation": 45, "earnings": 50, "momentum": 48, "news": 52}, "expected": [40, 59]},
+  {"name": "bearish", "factors": {"fundamentals": 32, "valuation": 28, "earnings": 25, "momentum": 20, "news": 30}, "expected": [0, 39]}
+]

@@ -166,6 +166,10 @@ async function resolveDemoProxy(
   const cleanPath = djangoPath.split("?")[0].replace(/\/$/, "");
 
   if (method === "POST" || method === "PUT" || method === "PATCH") {
+    if (/^\/api\/assets\/[^/]+\/stock-analysis$/.test(cleanPath)) {
+      const analysis = await resolveDemoData(djangoPath);
+      return NextResponse.json({ cached: true, analysis });
+    }
     if (cleanPath === "/api/assets/update-prices") {
       return NextResponse.json({ task_id: "demo-task-1", status: "queued" });
     }

@@ -17,6 +17,7 @@ Track NSE/BSE investments, transactions, dividends, interest, savings, property,
 ## Features
 
 - Portfolio management for stocks, ETFs, funds, and crypto, with Yahoo Finance pricing and NSE/BSE symbol support.
+- Evidence-grounded AI stock thesis for NSE/BSE stocks, with deterministic signal scoring and cited public sources.
 - FIFO, LIFO, and weighted-average cost engines; position value, cost basis, and unrealized P&L.
 - Buy, sell, and gift transactions with commissions and taxes; CSV exports and import deduplication.
 - Dividend and interest tracking with withholding/TDS, fees, net income, and yearly summaries.
@@ -28,6 +29,8 @@ Track NSE/BSE investments, transactions, dividends, interest, savings, property,
 - JSON backup/restore, retention controls, storage monitoring, privacy masking, Google OAuth, JWT cookies, rate limiting, and strict per-user isolation.
 - English-only interface, Indian number formatting, and INR defaults.
 - Responsive desktop/mobile UI and a backend-free demo mode.
+
+The optional AI Stock Thesis feature sends only public company and ticker evidence to Gemini—never holdings, quantities, balances, transactions, or cost basis. Set the server-side `GEMINI_API_KEY` to enable it. Market snapshots use [yfinance](https://ranaroussi.github.io/yfinance/) for personal/research use; verify important information against exchange filings before acting.
 
 ## Quick start
 

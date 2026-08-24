@@ -16,6 +16,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { MoneyCell } from "@/components/app/money-cell";
+import { StockThesisCard } from "@/components/app/stock-thesis-card";
 import { ArrowLeft, Pencil, X, Check } from "lucide-react";
 import { ASSET_TYPE_KEYS, ASSET_TYPE_BADGE_COLORS } from "@/lib/constants";
 import { useTranslations } from "@/i18n/use-translations";
@@ -213,6 +214,8 @@ export default function AssetDetailPage({
           <div className="-mx-4 sm:mx-0 rounded-none sm:rounded-lg border-y sm:border border-border overflow-hidden">
             <PriceChart assetId={id} ticker={asset.ticker} />
           </div>
+
+          <StockThesisCard assetId={id} />
 
           {/* Price + Fiscal cards — stack on mobile */}
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">

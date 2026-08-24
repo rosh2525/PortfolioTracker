@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "apps.importer",
     "apps.realestate",
     "apps.payroll",
+    "apps.insights",
 ]
 
 MIDDLEWARE = [
@@ -166,6 +167,7 @@ REST_FRAMEWORK = {
         "auth_register": "10/hour",
         "auth_google": "10/minute",
         "auth_password": "10/hour",
+        "stock_analysis": "10/day",
     },
 }
 
@@ -198,6 +200,11 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_RESULT_EXPIRES = 3600  # 1 hour
+
+# AI requests contain public company data only, never portfolio holdings.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+STOCK_ANALYSIS_TTL_HOURS = int(os.environ.get("STOCK_ANALYSIS_TTL_HOURS", "24"))
 
 CELERY_BEAT_SCHEDULE = {
     "snapshot-all-users": {
